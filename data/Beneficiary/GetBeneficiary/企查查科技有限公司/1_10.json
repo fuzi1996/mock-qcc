@@ -1,0 +1,43 @@
+{
+  "Status": "200",
+  "Message": "【有效请求】查询成功",
+  "OrderNumber": "BENEFICIARY2024051115224471920845",
+  "Paging": {
+    "PageSize": 10,
+    "PageIndex": 1,
+    "TotalRecords": 1
+  },
+  "Result": {
+    "CompanyName": "企查查科技股份有限公司",
+    "KeyNo": "fabhhypj5l5rpmejepim5labppmvajibij",
+    "FindMatched": "Y",
+    "OperName": null,
+    "BenifitType": null,
+    "Position": null,
+    "Remark": null,
+    "BreakThroughList": [
+      {
+        "Name": "陈德强",
+        "KeyNo": "pbhp5yj5mbmpb9lj3ejeilbpmr59bberhi",
+        "TotalStockPercent": "47.6956%",
+        "BenifitType": "直接持股",
+        "Position": "董事长",
+        "Calculation": "35.4938%",
+        "CreditCode": null,
+        "DetailInfoList": [
+          {
+            "Level": 1,
+            "ShouldCapi": 128576121,
+            "CapitalType": "货币",
+            "BreakthroughStockPercent": "35.4938%",
+            "StockType": "直接",
+            "Path": "陈德强(35.4938%)->企查查科技股份有限公司",
+            "StockPercent": "35.4938%"
+          }
+        ]
+      }
+    ],
+    "Executives": [],
+    "ActualExecutives": null
+  }
+}
