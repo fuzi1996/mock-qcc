@@ -1,168 +1,135 @@
 use actix_web::{
-  error::{ErrorBadRequest, ErrorForbidden, ErrorInternalServerError},
-  get, web, App, HttpResponse, HttpServer, Result,
+    error::{ErrorBadRequest, ErrorForbidden, ErrorInternalServerError},
+    get, web, App, HttpResponse, HttpServer, Result,
 };
-use log::{info, LevelFilter};
+use log::{error, info, LevelFilter};
 use percent_encoding::percent_decode_str;
-use std::collections::HashMap;
+use serde_json;
+use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::{collections::HashMap, env::current_dir};
+
+mod parse_628;
+mod parse_handler;
+use crate::parse_628::Parse628 as Parse628Struct;
+use crate::parse_handler::ParseHandler as ParseHandlerTrait;
+
+fn init_log() {
+    if let Ok(log_level) = std::env::var("LOG_LEVEL") {
+        let log_level = log_level
+            .parse::<LevelFilter>()
+            .unwrap_or(LevelFilter::Info);
+        env_logger::Builder::from_default_env()
+            .filter_level(log_level)
+            .target(env_logger::Target::Stdout)
+            .init();
+    } else {
+        env_logger::Builder::from_default_env()
+            .filter_level(LevelFilter::Info)
+            .target(env_logger::Target::Stdout)
+            .init();
+    }
+}
+
+fn set_work_dir(work_dir: &str) {
+    if !Path::new(work_dir).exists() {
+        error!("Work directory {} does not exist", work_dir);
+        std::process::exit(1);
+    }
+    std::env::set_current_dir(work_dir).unwrap();
+}
 
 #[get("/{path:.*}")]
 async fn handle_api_request(
-  path: web::Path<String>,
-  web::Query(mut params): web::Query<HashMap<String, String>>,
+    path: web::Path<String>,
+    web::Query(mut params): web::Query<HashMap<String, String>>,
 ) -> Result<HttpResponse> {
-  // 解码URL编码的路径
-  let decoded_path = percent_decode_str(&path)
-    .decode_utf8()
-    .map_err(|_| ErrorBadRequest("Invalid URL encoding"))?;
-
-  // 构建基础路径
-  let mut file_path = PathBuf::from("./data");
-
-  // 分割路径并处理每一部分
-  for segment in decoded_path.split('/').filter(|s| !s.is_empty()) {
-    // 防止路径遍历攻击
-    if segment == ".." {
-      return Err(ErrorForbidden("Path traversal not allowed"));
-    }
-    file_path.push(segment);
-  }
-
-  // 提取并验证分页参数
-  let (page_index, page_size) = match (params.remove("pageIndex"), params.remove("pageSize")) {
-    (None, None) => (1, 10),
-    (Some(pi), None) => {
-      let index = percent_decode_str(&pi)
+    // 解码URL编码的路径
+    let decoded_path = percent_decode_str(&path)
         .decode_utf8()
-        .map_err(|_| ErrorBadRequest("Invalid pageIndex encoding"))?;
-      (
-        index
-          .parse()
-          .map_err(|_| ErrorBadRequest("pageIndex must be a number"))?,
-        10,
-      )
+        .map_err(|_| ErrorBadRequest("Invalid URL encoding"))?;
+
+    let work_dir = current_dir().unwrap();
+    // 构建基础路径
+    let mut file_path = PathBuf::from(format!("{}/data", work_dir.display()));
+
+    // 分割路径并处理每一部分
+    for segment in decoded_path.split('/').filter(|s| !s.is_empty()) {
+        // 防止路径遍历攻击
+        if segment == ".." {
+            error!("Path {} not allowed", decoded_path);
+            return Err(ErrorForbidden("Path traversal not allowed"));
+        }
+        file_path.push(segment);
     }
-    (None, Some(ps)) => {
-      let size = percent_decode_str(&ps)
-        .decode_utf8()
-        .map_err(|_| ErrorBadRequest("Invalid pageSize encoding"))?;
-      (
-        1,
-        size
-          .parse()
-          .map_err(|_| ErrorBadRequest("pageSize must be a number"))?,
-      )
+
+    let handlers: Vec<Box<dyn ParseHandlerTrait>> = vec![Box::new(Parse628Struct)];
+
+    let mut is_matched = false;
+    for handler in handlers.iter() {
+        if handler.is_match(&path) {
+            let (query_values, filename) = handler.parse(params.clone());
+            if !query_values.is_empty() {
+                let combined_params = query_values.join("_");
+                file_path.push(combined_params);
+            }
+            file_path.push(filename);
+            is_matched = true;
+            break;
+        }
     }
-    (Some(pi), Some(ps)) => {
-      let index = percent_decode_str(&pi)
-        .decode_utf8()
-        .map_err(|_| ErrorBadRequest("Invalid pageIndex encoding"))?;
-      let size = percent_decode_str(&ps)
-        .decode_utf8()
-        .map_err(|_| ErrorBadRequest("Invalid pageSize encoding"))?;
-      (
-        index
-          .parse()
-          .map_err(|_| ErrorBadRequest("pageIndex must be a number"))?,
-        size
-          .parse()
-          .map_err(|_| ErrorBadRequest("pageSize must be a number"))?,
-      )
+
+    if !is_matched {
+        error!("Path {} not matched", decoded_path);
+        return Err(ErrorBadRequest("Path not matched"));
     }
-  };
 
-  // 处理主查询参数: 过滤key参数，按Unicode排序后的值用下划线连接作为子目录
-  let mut query_values: Vec<String> = params
-    .into_iter()
-    .filter(|(k, _)| k != "key")
-    .filter(|(k, _)| k != "percent")
-    .map(|(_, v)| {
-      // 解码查询参数值并转换为String
-      percent_decode_str(&v)
-        .decode_utf8()
-        .map(|s| s.into_owned())
-        .map_err(|_| ErrorBadRequest("Invalid URL encoding in query parameters"))
-    })
-    .collect::<Result<_, _>>()?;
+    info!("Request: {:?}", file_path);
 
-  // 按Unicode排序
-  query_values.sort();
-
-  // 多个参数值用下划线连接
-  if !query_values.is_empty() {
-    let combined_params = query_values.join("_");
-    file_path.push(combined_params);
-  }
-
-  // 设置分页文件名
-  let filename = format!("{}_{}.json", page_index, page_size);
-  file_path.push(filename);
-
-  // 验证路径是否在data目录内
-  if !file_path.starts_with("./data") {
-    return Err(ErrorForbidden("Access denied"));
-  }
-
-  info!("Request: {:?}", file_path);
-
-  // 读取文件并返回
-  match fs::read_to_string(&file_path) {
-    Ok(content) => Ok(
-      HttpResponse::Ok()
-        .content_type("application/json")
-        .body(content),
-    ),
-    Err(_) => {
-      let error_response = serde_json::json!({
-          "code": 404,
-          "message": "数据文件未找到",
-          "request_id": generate_request_id()
-      });
-      let error_body = serde_json::to_string(&error_response)
-        .map_err(|_| ErrorInternalServerError("Failed to serialize error response"))?;
-      Ok(
-        HttpResponse::NotFound()
-          .content_type("application/json")
-          .body(error_body),
-      )
+    // 读取文件并返回
+    match fs::read_to_string(&file_path) {
+        Ok(content) => Ok(HttpResponse::Ok()
+            .content_type("application/json")
+            .body(content)),
+        Err(_) => {
+            let error_response = serde_json::json!({"code": 404, "message": "数据文件未找到", "request_id": generate_request_id()});
+            let error_body = serde_json::to_string(&error_response)
+                .map_err(|_| ErrorInternalServerError("Failed to serialize error response"))?;
+            Ok(HttpResponse::NotFound()
+                .content_type("application/json")
+                .body(error_body))
+        }
     }
-  }
 }
 
 // 生成随机请求ID
 fn generate_request_id() -> String {
-  use rand::Rng;
-  let mut rng = rand::thread_rng();
-  let chars: Vec<char> = "abcdefghijklmnopqrstuvwxyz0123456789".chars().collect();
-  (0..16)
-    .map(|_| chars[rng.gen_range(0..chars.len())])
-    .collect()
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let chars: Vec<char> = "abcdefghijklmnopqrstuvwxyz0123456789".chars().collect();
+    (0..16)
+        .map(|_| chars[rng.gen_range(0..chars.len())])
+        .collect()
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-  init_log();
-  HttpServer::new(|| App::new().service(handle_api_request))
-    .bind("127.0.0.1:8080")?
-    .run()
-    .await
-}
+    init_log();
 
-fn init_log() {
-  if let Ok(log_level) = std::env::var("LOG_LEVEL") {
-    let log_level = log_level
-      .parse::<LevelFilter>()
-      .unwrap_or(LevelFilter::Info);
-    env_logger::Builder::from_default_env()
-      .filter_level(log_level)
-      .target(env_logger::Target::Stdout)
-      .init();
-  } else {
-    env_logger::Builder::from_default_env()
-      .filter_level(LevelFilter::Info)
-      .target(env_logger::Target::Stdout)
-      .init();
-  }
+    let host = env::var("HOST").unwrap_or("127.0.0.1".to_string());
+    let port = env::args().nth(1).unwrap_or("7878".to_string());
+    let work_dir = env::args().nth(2).unwrap_or(".".to_string());
+
+    set_work_dir(&work_dir);
+
+    info!(
+        "Server is running on http://{}:{} in {}",
+        host, port, work_dir
+    );
+
+    HttpServer::new(|| App::new().service(handle_api_request))
+        .bind(format!("{}:{}", host, port))?
+        .run()
+        .await
 }
