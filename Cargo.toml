@@ -3,13 +3,13 @@ name = "mock-qcc"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-actix-web = "4.4.0"
-percent-encoding = "2.1.0"
-rand = "0.8.5"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+actix-web = { version = "4.5.0", features = ["rustls"] }
+rustls-pemfile = "1.0.0"
 env_logger = "0.11.8"
 log = "0.4.27"
+serde_json = "1.0"
+percent-encoding = "2.3.0"
+serde = { version = "1.0", features = ["derive"] }
+rustls = "0.20.0"
+rand = { version = "0.9.0-beta.3" }
