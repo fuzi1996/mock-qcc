@@ -14,6 +14,7 @@ use std::fs;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
+use tokio::try_join;
 
 mod parse_628;
 mod parse_handler;
@@ -224,10 +225,19 @@ async fn main() -> std::io::Result<()> {
     // 加载TLS配置
     let tls_config = load_tls_config(&cert_path, &key_path);
 
-    info!("Server is running on https://{}:{}", host, port);
+    info!(
+        "Server is running on https://{}:{} and http://{}:{}",
+        host, port, host, port
+    );
 
-    HttpServer::new(|| App::new().service(handle_api_request))
+    let https_server = HttpServer::new(|| App::new().service(handle_api_request))
         .bind_rustls(format!("{}:{}", host, port), tls_config)?
-        .run()
-        .await
+        .run();
+
+    let http_server = HttpServer::new(|| App::new().service(handle_api_request))
+        .bind(format!("{}:443", host))?
+        .run();
+
+    tokio::try_join!(https_server, http_server)?;
+    Ok(())
 }
