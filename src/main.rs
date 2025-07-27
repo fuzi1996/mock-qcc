@@ -164,7 +164,7 @@ async fn main() -> std::io::Result<()> {
     init_log();
 
     let host = env::var("HOST").unwrap_or("127.0.0.1".to_string());
-    let port = env::args().nth(1).unwrap_or("7878".to_string());
+    let port = env::args().nth(1).unwrap_or("443".to_string());
     let work_dir = env::args().nth(2).unwrap_or(".".to_string());
     let cert_path = env::args().nth(3).unwrap_or("cert.pem".to_string());
     let key_path = env::args().nth(4).unwrap_or("key.pem".to_string());
@@ -175,8 +175,8 @@ async fn main() -> std::io::Result<()> {
     let tls_config = load_tls_config(&cert_path, &key_path);
 
     info!(
-        "Server is running on https://{}:{} and http://{}:{}",
-        host, port, host, port
+        "Server is running on https://{}:{}",
+        host, port
     );
 
     HttpServer::new(|| {
