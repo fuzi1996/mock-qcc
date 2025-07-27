@@ -1,12 +1,14 @@
+use actix_web::middleware::Logger;
 use actix_web::{
     error::{ErrorBadRequest, ErrorForbidden, ErrorInternalServerError},
-    get, web, App, HttpResponse, HttpServer, Result,
+    get, middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result,
 };
 use log::{error, info, LevelFilter};
 use percent_encoding::percent_decode_str;
 use rand::Rng;
-use rustls::{Certificate, PrivateKey, ServerConfig};
-use rustls_pemfile::{certs, pkcs8_private_keys};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::ServerConfig;
 use serde_json;
 use std::collections::HashMap;
 use std::env;
@@ -14,7 +16,7 @@ use std::fs;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use tokio::try_join;
+
 
 mod parse_628;
 mod parse_handler;
@@ -27,12 +29,14 @@ fn init_log() {
             .parse::<LevelFilter>()
             .unwrap_or(LevelFilter::Info);
         env_logger::Builder::from_default_env()
-            .filter_level(log_level)
+            .filter(None, log_level)
+            .filter(Some("actix_http"), LevelFilter::Debug)
             .target(env_logger::Target::Stdout)
             .init();
     } else {
         env_logger::Builder::from_default_env()
-            .filter_level(LevelFilter::Info)
+            .filter(None, LevelFilter::Info)
+            .filter(Some("actix_http"), LevelFilter::Debug)
             .target(env_logger::Target::Stdout)
             .init();
     }
@@ -47,34 +51,27 @@ fn set_work_dir(work_dir: &str) {
 }
 
 fn load_tls_config(cert_path: &str, key_path: &str) -> ServerConfig {
-    // 读取证书文件
-    let cert_file = File::open(cert_path).expect("Failed to open certificate file");
-    let mut cert_reader = BufReader::new(cert_file);
-    let cert_chain = certs(&mut cert_reader)
-        .expect("Failed to parse certificate")
-        .into_iter()
-        .map(Certificate)
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .unwrap();
+    // load TLS key/cert files
+    let cert_chain = CertificateDer::pem_file_iter(cert_path)
+        .unwrap()
+        .flatten()
         .collect();
 
-    // 读取私钥文件
-    let key_file = File::open(key_path).expect("Failed to open private key file");
-    let mut key_reader = BufReader::new(key_file);
-    let mut keys = pkcs8_private_keys(&mut key_reader)
-        .expect("Failed to parse private key")
-        .into_iter()
-        .map(PrivateKey);
+    let key_der =
+        PrivateKeyDer::from_pem_file(key_path).expect("Could not locate PKCS 8 private keys.");
 
-    let config = ServerConfig::builder()
-        .with_safe_defaults()
+    ServerConfig::builder()
         .with_no_client_auth()
-        .with_single_cert(cert_chain, keys.next().expect("No private key found"))
-        .expect("Failed to create TLS configuration");
-
-    config
+        .with_single_cert(cert_chain, key_der)
+        .unwrap()
 }
 
 #[get("/{path:.*}")]
 async fn handle_api_request(
+    req: HttpRequest,
     path: web::Path<String>,
     web::Query(mut params): web::Query<HashMap<String, String>>,
 ) -> Result<HttpResponse> {
@@ -83,6 +80,8 @@ async fn handle_api_request(
         .decode_utf8()
         .map_err(|_| ErrorBadRequest("Invalid URL encoding"))?;
 
+    // 记录请求头信息
+    info!("Request headers: {:?}", req.headers());
     // 获取当前工作目录
     let work_dir = std::env::current_dir().unwrap();
 
@@ -230,14 +229,13 @@ async fn main() -> std::io::Result<()> {
         host, port, host, port
     );
 
-    let https_server = HttpServer::new(|| App::new().service(handle_api_request))
-        .bind_rustls(format!("{}:{}", host, port), tls_config)?
-        .run();
+    HttpServer::new(|| {
+        App::new()
+            .wrap(middleware::Logger::default())
+    })
+        .bind_rustls_0_23(format!("{}:{}", host, port), tls_config)?
+        .run()
+        .await;
 
-    let http_server = HttpServer::new(|| App::new().service(handle_api_request))
-        .bind(format!("{}:443", host))?
-        .run();
-
-    tokio::try_join!(https_server, http_server)?;
     Ok(())
 }
