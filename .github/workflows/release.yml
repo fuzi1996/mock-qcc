@@ -41,6 +41,7 @@ jobs:
             const { owner, repo } = context.repo;
             const workflowId = 'build.yml';
             const ref = context.ref;
+            const version = context.payload.inputs.version;
             
             console.log(`Waiting for workflow ${workflowId} on ${ref}...`);
             
@@ -62,8 +63,7 @@ jobs:
               // Find the latest run triggered by this workflow
               const latestRun = runs.workflow_runs.find(run => 
                 run.head_sha === context.sha && 
-                run.display_title === `Build ${github.event.inputs.version}` || 
-                run.display_title.includes('Build')
+                (run.display_title === `Build ${version}` || run.display_title.includes('Build'))
               );
               
               if (latestRun) {
