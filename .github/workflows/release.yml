@@ -71,11 +71,11 @@ jobs:
               
               # Move the executable to the release assets directory with proper name
               if [[ "$base_name" == *"windows"* ]]; then
-                mv "../release-assets/web-server.exe" "../release-assets/mock-qcc-windows-x64.exe"
+                mv "../release-assets/mock-qcc.exe" "../release-assets/mock-qcc-windows-x64.exe"
               elif [[ "$base_name" == *"linux"* ]]; then
-                mv "../release-assets/web-server" "../release-assets/mock-qcc-linux-x64"
+                mv "../release-assets/mock-qcc" "../release-assets/mock-qcc-linux-x64"
               elif [[ "$base_name" == *"macos"* ]]; then
-                mv "../release-assets/web-server" "../release-assets/mock-qcc-macos-x64"
+                mv "../release-assets/mock-qcc" "../release-assets/mock-qcc-macos-x64"
               fi
             fi
           done
@@ -131,21 +131,20 @@ jobs:
             ```bash
             # Linux/macOS
             chmod +x mock-qcc-linux-x64
-            ./mock-qcc-linux-x64 8080 .
+            ./mock-qcc-linux-x64 443 "/data" "/data/cert.pem" "/data/key.pem"
             
             # Windows
-            mock-qcc-windows-x64.exe 8080 .
+            mock-qcc-windows-x64.exe 443 "/data" "/data/cert.pem" "/data/key.pem"
             ```
             
             ## Usage
             
             ```bash
             # Basic usage
-            ./web-server <port> <working-directory>
+            ./mock-qcc <port> <working-directory> <cert-file> <key-file>
             
             # Examples
-            ./web-server 8080 .
-            ./web-server 3000 /path/to/files
+            ./mock-qcc 443 "/data" "/data/cert.pem" "/data/key.pem"
             ```
           draft: false
           prerelease: false
