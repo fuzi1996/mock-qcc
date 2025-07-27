@@ -98,84 +98,27 @@ async fn handle_api_request(
         file_path.push(segment);
     }
 
-    // 检查是否需要使用Parse628解析器
-    let parser = Parse628Struct;
-    if parser.is_match(&decoded_path) {
-        let (query_values, filename) = parser.parse(params.clone());
-        if !query_values.is_empty() {
-            let combined_params = query_values.join("_");
-            file_path.push(combined_params);
+    // 处理路径
+    let mut parse_handler: Vec<Box<dyn ParseHandlerTrait>> = Vec::new();
+    parse_handler.push(Box::new(Parse628Struct));
+
+    let mut file_name = String::from("");;
+    let mut path_from_url = String::from("");
+    let mut is_match = false;
+    for handler in parse_handler.iter() {
+        if handler.is_match(&file_name) {
+            let (params, new_file_name) = handler.parse(params);
+            file_name = new_file_name;
+            path_from_url = params.join("/").to_string();
+            is_match = true;
+            break;
         }
-        file_path.push(filename);
-    } else {
-        // 提取并验证分页参数
-        let (page_index, page_size) = match (params.remove("pageIndex"), params.remove("pageSize"))
-        {
-            (None, None) => (1, 10),
-            (Some(pi), None) => {
-                let index = percent_decode_str(&pi)
-                    .decode_utf8()
-                    .map_err(|_| ErrorBadRequest("Invalid pageIndex encoding"))?;
-                (
-                    index
-                        .parse()
-                        .map_err(|_| ErrorBadRequest("pageIndex must be a number"))?,
-                    10,
-                )
-            }
-            (None, Some(ps)) => {
-                let size = percent_decode_str(&ps)
-                    .decode_utf8()
-                    .map_err(|_| ErrorBadRequest("Invalid pageSize encoding"))?;
-                (
-                    1,
-                    size.parse()
-                        .map_err(|_| ErrorBadRequest("pageSize must be a number"))?,
-                )
-            }
-            (Some(pi), Some(ps)) => {
-                let index = percent_decode_str(&pi)
-                    .decode_utf8()
-                    .map_err(|_| ErrorBadRequest("Invalid pageIndex encoding"))?;
-                let size = percent_decode_str(&ps)
-                    .decode_utf8()
-                    .map_err(|_| ErrorBadRequest("Invalid pageSize encoding"))?;
-                (
-                    index
-                        .parse()
-                        .map_err(|_| ErrorBadRequest("pageIndex must be a number"))?,
-                    size.parse()
-                        .map_err(|_| ErrorBadRequest("pageSize must be a number"))?,
-                )
-            }
-        };
-
-        // 处理主查询参数: 过滤key参数，按Unicode排序后的值用下划线连接作为子目录
-        let mut query_values: Vec<String> = params
-            .into_iter()
-            .filter(|(k, _)| k != "key")
-            .map(|(_, v)| {
-                // 解码查询参数值并转换为String
-                percent_decode_str(&v)
-                    .decode_utf8()
-                    .map(|s| s.into_owned())
-                    .map_err(|_| ErrorBadRequest("Invalid URL encoding in query parameters"))
-            })
-            .collect::<Result<_, _>>()?;
-
-        // 按Unicode排序
-        query_values.sort();
-
-        // 多个参数值用下划线连接
-        if !query_values.is_empty() {
-            let combined_params = query_values.join("_");
-            file_path.push(combined_params);
-        }
-
-        // 设置分页文件名
-        let filename = format!("{}_{}.json", page_index, page_size);
-        file_path.push(filename);
     }
+    if !is_match {
+        return Err(ErrorBadRequest("Invalid path"));
+    }
+    file_path.push(path_from_url);
+    file_path.set_file_name(file_name);
 
     info!("Request: {:?}", file_path);
 
