@@ -1,0 +1,115 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Build version'
+        required: false
+        type: string
+        default: 'latest'
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            executable: web-server
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            executable: web-server.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            executable: web-server
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Install cargo-audit
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cargo audit || echo "Security audit failed, but continuing..."
+        continue-on-error: true
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create release directory
+        shell: bash
+        run: |
+          mkdir -p release
+          cp target/${{ matrix.target }}/release/${{ matrix.executable }} release/
+
+      - name: Generate MD5 checksum
+        shell: bash
+        run: |
+          cd release
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            # Windows with PowerShell
+            powershell -Command "Get-FileHash -Algorithm MD5 '${{ matrix.executable }}' | Select-Object -ExpandProperty Hash | Out-File -FilePath '${{ matrix.executable }}.md5' -Encoding ASCII"
+          else
+            # Linux/macOS
+            md5sum ${{ matrix.executable }} > ${{ matrix.executable }}.md5
+          fi
+
+      - name: Create zip archive
+        shell: bash
+        run: |
+          cd release
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            # Windows with PowerShell
+            powershell -Command "Compress-Archive -Path * -DestinationPath '../mock-qcc-${{ matrix.target }}.zip' -Force"
+          else
+            # Linux/macOS
+            zip -r ../mock-qcc-${{ matrix.target }}.zip .
+          fi
+
+      - name: Generate zip MD5 checksum
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            # Windows with PowerShell
+            powershell -Command "Get-FileHash -Algorithm MD5 'mock-qcc-${{ matrix.target }}.zip' | Select-Object -ExpandProperty Hash | Out-File -FilePath 'mock-qcc-${{ matrix.target }}.zip.md5' -Encoding ASCII"
+          else
+            # Linux/macOS
+            md5sum mock-qcc-${{ matrix.target }}.zip > mock-qcc-${{ matrix.target }}.zip.md5
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mock-qcc-${{ matrix.target }}
+          path: |
+            mock-qcc-${{ matrix.target }}.zip
+            mock-qcc-${{ matrix.target }}.zip.md5 

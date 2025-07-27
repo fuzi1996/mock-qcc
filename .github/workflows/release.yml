@@ -1,0 +1,181 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+      release_notes:
+        description: 'Release notes'
+        required: false
+        type: string
+        default: 'Release'
+
+jobs:
+  trigger-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Trigger build workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build.yml',
+              ref: context.ref,
+              inputs: {
+                version: '${{ github.event.inputs.version }}'
+              }
+            })
+      
+      - name: Wait for build to complete
+        run: |
+          echo "Waiting for build workflow to complete..."
+          sleep 300  # Wait 5 minutes for build to complete
+
+  download-builds:
+    needs: trigger-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          pattern: mock-qcc-*
+
+      - name: Extract and prepare release files
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          cd dist
+          
+          # Extract each zip file and prepare for release
+          for zip_file in mock-qcc-*.zip; do
+            if [[ -f "$zip_file" ]]; then
+              # Extract the zip file
+              unzip "$zip_file" -d "../release-assets/"
+              
+              # Get the base name without extension
+              base_name=$(basename "$zip_file" .zip)
+              
+              # Move the executable to the release assets directory with proper name
+              if [[ "$base_name" == *"windows"* ]]; then
+                mv "../release-assets/web-server.exe" "../release-assets/mock-qcc-windows-x64.exe"
+              elif [[ "$base_name" == *"linux"* ]]; then
+                mv "../release-assets/web-server" "../release-assets/mock-qcc-linux-x64"
+              elif [[ "$base_name" == *"macos"* ]]; then
+                mv "../release-assets/web-server" "../release-assets/mock-qcc-macos-x64"
+              fi
+            fi
+          done
+
+      - name: Upload prepared assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets/
+
+  create-release:
+    needs: download-builds
+    runs-on: ubuntu-latest
+    if: github.event.inputs.version != ''
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download prepared assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets/
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          release_name: Release ${{ github.event.inputs.version }}
+          body: |
+            ## Release Notes
+            
+            ${{ github.event.inputs.release_notes }}
+            
+            ## Downloads
+            
+            This release includes pre-built binaries for the following platforms:
+            
+            - **Linux (x64)**: `mock-qcc-linux-x64`
+            - **Windows (x64)**: `mock-qcc-windows-x64.exe`
+            - **macOS (x64)**: `mock-qcc-macos-x64`
+            
+            ## Installation
+            
+            Download the appropriate binary for your platform and make it executable:
+            
+            ```bash
+            # Linux/macOS
+            chmod +x mock-qcc-linux-x64
+            ./mock-qcc-linux-x64 8080 .
+            
+            # Windows
+            mock-qcc-windows-x64.exe 8080 .
+            ```
+            
+            ## Usage
+            
+            ```bash
+            # Basic usage
+            ./web-server <port> <working-directory>
+            
+            # Examples
+            ./web-server 8080 .
+            ./web-server 3000 /path/to/files
+            ```
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/mock-qcc-linux-x64
+          asset_name: mock-qcc-linux-x64
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/mock-qcc-windows-x64.exe
+          asset_name: mock-qcc-windows-x64.exe
+          asset_content_type: application/octet-stream
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release-assets/mock-qcc-macos-x64
+          asset_name: mock-qcc-macos-x64
+          asset_content_type: application/octet-stream 
