@@ -78,8 +78,11 @@ jobs:
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             # Windows with PowerShell
             powershell -Command "Get-FileHash -Algorithm MD5 '${{ matrix.executable }}' | Select-Object -ExpandProperty Hash | Out-File -FilePath '${{ matrix.executable }}.md5' -Encoding ASCII"
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            # macOS
+            md5 ${{ matrix.executable }} | awk '{print $4}' > ${{ matrix.executable }}.md5
           else
-            # Linux/macOS
+            # Linux
             md5sum ${{ matrix.executable }} > ${{ matrix.executable }}.md5
           fi
 
@@ -101,8 +104,11 @@ jobs:
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             # Windows with PowerShell
             powershell -Command "Get-FileHash -Algorithm MD5 'mock-qcc-${{ matrix.target }}.zip' | Select-Object -ExpandProperty Hash | Out-File -FilePath 'mock-qcc-${{ matrix.target }}.zip.md5' -Encoding ASCII"
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            # macOS
+            md5 mock-qcc-${{ matrix.target }}.zip | awk '{print $4}' > mock-qcc-${{ matrix.target }}.zip.md5
           else
-            # Linux/macOS
+            # Linux
             md5sum mock-qcc-${{ matrix.target }}.zip > mock-qcc-${{ matrix.target }}.zip.md5
           fi
 
@@ -112,4 +118,4 @@ jobs:
           name: mock-qcc-${{ matrix.target }}
           path: |
             mock-qcc-${{ matrix.target }}.zip
-            mock-qcc-${{ matrix.target }}.zip.md5 
+            mock-qcc-${{ matrix.target }}.zip.md5
