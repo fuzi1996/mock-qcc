@@ -30,7 +30,7 @@ jobs:
               workflow_id: 'build.yml',
               ref: context.ref,
               inputs: {
-                version: '${{ context.payload.inputs.version }}'
+                version: '${{ github.event.inputs.version }}'
               }
             })
       
