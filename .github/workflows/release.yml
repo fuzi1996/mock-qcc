@@ -107,28 +107,25 @@ jobs:
           path: dist/
           pattern: mock-qcc-*
 
-      - name: Extract and prepare release files
+      - name: Prepare release assets
         shell: bash
         run: |
           mkdir -p release-assets
           cd dist
           
-          # Extract each zip file and prepare for release
+          # Copy zip files directly without extraction
           for zip_file in mock-qcc-*.zip; do
             if [[ -f "$zip_file" ]]; then
-              # Extract the zip file
-              unzip "$zip_file" -d "../release-assets/"
-              
-              # Get the base name without extension
+              # Get the base name and rename to standard format
               base_name=$(basename "$zip_file" .zip)
               
-              # Move the executable to the release assets directory with proper name
+              # Determine platform and rename accordingly
               if [[ "$base_name" == *"windows"* ]]; then
-                mv "../release-assets/mock-qcc.exe" "../release-assets/mock-qcc-windows-x64.exe"
+                cp "$zip_file" "../release-assets/mock-qcc-windows-x64.zip"
               elif [[ "$base_name" == *"linux"* ]]; then
-                mv "../release-assets/mock-qcc" "../release-assets/mock-qcc-linux-x64"
+                cp "$zip_file" "../release-assets/mock-qcc-linux-x64.zip"
               elif [[ "$base_name" == *"macos"* ]]; then
-                mv "../release-assets/mock-qcc" "../release-assets/mock-qcc-macos-x64"
+                cp "$zip_file" "../release-assets/mock-qcc-macos-x64.zip"
               fi
             fi
           done
@@ -173,21 +170,23 @@ jobs:
             
             This release includes pre-built binaries for the following platforms:
             
-            - **Linux (x64)**: `mock-qcc-linux-x64`
-            - **Windows (x64)**: `mock-qcc-windows-x64.exe`
-            - **macOS (x64)**: `mock-qcc-macos-x64`
+            - **Linux (x64)**: `mock-qcc-linux-x64.zip`
+            - **Windows (x64)**: `mock-qcc-windows-x64.zip`
+            - **macOS (x64)**: `mock-qcc-macos-x64.zip`
             
             ## Installation
             
-            Download the appropriate binary for your platform and make it executable:
+            Download the appropriate zip file for your platform, extract it, and make the binary executable:
             
             ```bash
             # Linux/macOS
-            chmod +x mock-qcc-linux-x64
-            ./mock-qcc-linux-x64 443 "/data" "/data/cert.pem" "/data/key.pem"
+            unzip mock-qcc-linux-x64.zip
+            chmod +x mock-qcc
+            ./mock-qcc 443 "/data" "/data/cert.pem" "/data/key.pem"
             
             # Windows
-            mock-qcc-windows-x64.exe 443 "/data" "/data/cert.pem" "/data/key.pem"
+            unzip mock-qcc-windows-x64.zip
+            mock-qcc.exe 443 "/data" "/data/cert.pem" "/data/key.pem"
             ```
             
             ## Usage
@@ -202,32 +201,32 @@ jobs:
           draft: false
           prerelease: false
 
-      - name: Upload Release Assets
+      - name: Upload Linux Release Asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/mock-qcc-linux-x64
-          asset_name: mock-qcc-linux-x64
-          asset_content_type: application/octet-stream
+          asset_path: ./release-assets/mock-qcc-linux-x64.zip
+          asset_name: mock-qcc-linux-x64.zip
+          asset_content_type: application/zip
 
-      - name: Upload Release Assets
+      - name: Upload Windows Release Asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/mock-qcc-windows-x64.exe
-          asset_name: mock-qcc-windows-x64.exe
-          asset_content_type: application/octet-stream
+          asset_path: ./release-assets/mock-qcc-windows-x64.zip
+          asset_name: mock-qcc-windows-x64.zip
+          asset_content_type: application/zip
 
-      - name: Upload Release Assets
+      - name: Upload macOS Release Asset
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-assets/mock-qcc-macos-x64
-          asset_name: mock-qcc-macos-x64
-          asset_content_type: application/octet-stream
+          asset_path: ./release-assets/mock-qcc-macos-x64.zip
+          asset_name: mock-qcc-macos-x64.zip
+          asset_content_type: application/zip
