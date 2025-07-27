@@ -17,10 +17,14 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
-
-mod parse_628;
 mod parse_handler;
+mod parse_628;
+mod parse_643;
+mod parse_663;
+
 use crate::parse_628::Parse628 as Parse628Struct;
+use crate::parse_643::Parse643 as Parse643Struct;
+use crate::parse_663::Parse663 as Parse663Struct;
 use crate::parse_handler::ParseHandler as ParseHandlerTrait;
 
 fn init_log() {
@@ -86,7 +90,8 @@ async fn handle_api_request(
     let work_dir = std::env::current_dir().unwrap();
 
     // 构建基础路径
-    let mut file_path = PathBuf::from(format!("{}/data", work_dir.display()));
+    let mut file_path = PathBuf::from(work_dir.clone());
+    file_path.push("data");
 
     // 分割路径并处理每一部分
     for segment in decoded_path.split('/').filter(|s| !s.is_empty()) {
@@ -101,12 +106,14 @@ async fn handle_api_request(
     // 处理路径
     let mut parse_handler: Vec<Box<dyn ParseHandlerTrait>> = Vec::new();
     parse_handler.push(Box::new(Parse628Struct));
+    parse_handler.push(Box::new(Parse643Struct));
+    parse_handler.push(Box::new(Parse663Struct));
 
     let mut file_name = String::from("");;
     let mut path_from_url = String::from("");
     let mut is_match = false;
     for handler in parse_handler.iter() {
-        if handler.is_match(&file_name) {
+        if handler.is_match(&decoded_path) {
             let (params, new_file_name) = handler.parse(params);
             file_name = new_file_name;
             path_from_url = params.join("/").to_string();
@@ -117,8 +124,8 @@ async fn handle_api_request(
     if !is_match {
         return Err(ErrorBadRequest("Invalid path"));
     }
-    file_path.push(path_from_url);
-    file_path.set_file_name(file_name);
+    file_path.push(&path_from_url);
+    file_path.push(&file_name);
 
     info!("Request: {:?}", file_path);
 
@@ -175,6 +182,7 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(|| {
         App::new()
             .wrap(middleware::Logger::default())
+            .service(handle_api_request)
     })
         .bind_rustls_0_23(format!("{}:{}", host, port), tls_config)?
         .run()
