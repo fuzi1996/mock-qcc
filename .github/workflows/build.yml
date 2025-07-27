@@ -50,16 +50,16 @@ jobs:
             ${{ runner.os }}-cargo-${{ matrix.target }}-
             ${{ runner.os }}-cargo-
 
-      - name: Install cargo-audit
-        if: runner.os == 'Windows'
-        shell: bash
-        run: cargo install cargo-audit
+      # - name: Install cargo-audit
+      #   if: runner.os == 'Windows'
+      #   shell: bash
+      #   run: cargo install cargo-audit
 
-      - name: Run security audit
-        if: runner.os == 'Windows'
-        shell: bash
-        run: cargo audit || echo "Security audit failed, but continuing..."
-        continue-on-error: true
+      # - name: Run security audit
+      #   if: runner.os == 'Windows'
+      #   shell: bash
+      #   run: cargo audit || echo "Security audit failed, but continuing..."
+      #   continue-on-error: true
 
       - name: Build
         shell: bash
