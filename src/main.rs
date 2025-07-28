@@ -1,3 +1,4 @@
+use actix_web::middleware::Logger;
 use actix_web::{
     error::{ErrorBadRequest, ErrorForbidden, ErrorInternalServerError},
     get, middleware, web, App, HttpRequest, HttpResponse, HttpServer, Result,
@@ -12,12 +13,14 @@ use serde_json;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::fs::File;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
+mod parse_handler;
 mod parse_628;
 mod parse_643;
 mod parse_663;
-mod parse_handler;
 
 use crate::parse_628::Parse628 as Parse628Struct;
 use crate::parse_643::Parse643 as Parse643Struct;
@@ -74,7 +77,7 @@ fn load_tls_config(cert_path: &str, key_path: &str) -> ServerConfig {
 async fn handle_api_request(
     req: HttpRequest,
     path: web::Path<String>,
-    web::Query(params): web::Query<HashMap<String, String>>,
+    web::Query(mut params): web::Query<HashMap<String, String>>,
 ) -> Result<HttpResponse> {
     // 解码URL编码的路径
     let decoded_path = percent_decode_str(&path)
@@ -106,7 +109,7 @@ async fn handle_api_request(
     parse_handler.push(Box::new(Parse643Struct));
     parse_handler.push(Box::new(Parse663Struct));
 
-    let mut file_name = String::from("");
+    let mut file_name = String::from("");;
     let mut path_from_url = String::from("");
     let mut is_match = false;
     for handler in parse_handler.iter() {
@@ -149,10 +152,10 @@ async fn handle_api_request(
 
 // 生成随机请求ID
 fn generate_request_id() -> String {
-    let mut rng = rand::rng();
+    let mut rng = rand::thread_rng();
     let chars: Vec<char> = "abcdefghijklmnopqrstuvwxyz0123456789".chars().collect();
     (0..16)
-        .map(|_| chars[rng.random_range(0..chars.len())])
+        .map(|_| chars[rng.gen_range(0..chars.len())])
         .collect()
 }
 
@@ -171,14 +174,19 @@ async fn main() -> std::io::Result<()> {
     // 加载TLS配置
     let tls_config = load_tls_config(&cert_path, &key_path);
 
-    info!("Server is running on https://{}:{}", host, port);
+    info!(
+        "Server is running on https://{}:{}",
+        host, port
+    );
 
     HttpServer::new(|| {
         App::new()
             .wrap(middleware::Logger::default())
             .service(handle_api_request)
     })
-    .bind_rustls_0_23(format!("{}:{}", host, port), tls_config)?
-    .run()
-    .await
+        .bind_rustls_0_23(format!("{}:{}", host, port), tls_config)?
+        .run()
+        .await;
+
+    Ok(())
 }

@@ -98,20 +98,6 @@ jobs:
             zip -r ../mock-qcc-${{ matrix.target }}.zip .
           fi
 
-      - name: Generate zip MD5 checksum
-        shell: bash
-        run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            # Windows with PowerShell
-            powershell -Command "Get-FileHash -Algorithm MD5 'mock-qcc-${{ matrix.target }}.zip' | Select-Object -ExpandProperty Hash | Out-File -FilePath 'mock-qcc-${{ matrix.target }}.zip.md5' -Encoding ASCII"
-          elif [[ "${{ runner.os }}" == "macOS" ]]; then
-            # macOS
-            md5 mock-qcc-${{ matrix.target }}.zip | awk '{print $4}' > mock-qcc-${{ matrix.target }}.zip.md5
-          else
-            # Linux
-            md5sum mock-qcc-${{ matrix.target }}.zip > mock-qcc-${{ matrix.target }}.zip.md5
-          fi
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
