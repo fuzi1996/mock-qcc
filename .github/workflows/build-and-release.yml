@@ -1,0 +1,214 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0) - leave empty for just build'
+        required: false
+        type: string
+        default: ''
+      release_notes:
+        description: 'Release notes (only used when version is provided)'
+        required: false
+        type: string
+        default: 'Release'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux-gnu
+            executable: mock-qcc
+            asset_name: mock-qcc-linux-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            executable: mock-qcc.exe
+            asset_name: mock-qcc-windows-x64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            executable: mock-qcc
+            asset_name: mock-qcc-macos-x64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create release directory
+        shell: bash
+        run: |
+          mkdir -p release
+          cp target/${{ matrix.target }}/release/${{ matrix.executable }} release/
+
+      - name: Generate MD5 checksum
+        shell: bash
+        run: |
+          cd release
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            # Windows with PowerShell
+            powershell -Command "Get-FileHash -Algorithm MD5 '${{ matrix.executable }}' | Select-Object -ExpandProperty Hash | Out-File -FilePath '${{ matrix.executable }}.md5' -Encoding ASCII"
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            # macOS
+            md5 ${{ matrix.executable }} | awk '{print $4}' > ${{ matrix.executable }}.md5
+          else
+            # Linux
+            md5sum ${{ matrix.executable }} > ${{ matrix.executable }}.md5
+          fi
+
+      - name: Create zip archive
+        shell: bash
+        run: |
+          cd release
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            # Windows with PowerShell
+            powershell -Command "Compress-Archive -Path * -DestinationPath '../${{ matrix.asset_name }}.zip' -Force"
+          else
+            # Linux/macOS
+            zip -r ../${{ matrix.asset_name }}.zip .
+          fi
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}.zip
+            ${{ matrix.asset_name }}.zip.md5
+          retention-days: 1
+
+  create-release:
+    if: ${{ github.event.inputs.version != '' }}
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          release_name: Release ${{ github.event.inputs.version }}
+          body: |
+            ## Release Notes
+            
+            ${{ github.event.inputs.release_notes }}
+            
+            ## Downloads
+            
+            This release includes pre-built binaries for the following platforms:
+            
+            - **Linux (x64)**: `mock-qcc-linux-x64.zip`
+            - **Windows (x64)**: `mock-qcc-windows-x64.zip`
+            - **macOS (x64)**: `mock-qcc-macos-x64.zip`
+            
+            ## Installation
+            
+            Download the appropriate zip file for your platform, extract it, and make the binary executable:
+            
+            ```bash
+            # Linux/macOS
+            unzip mock-qcc-linux-x64.zip
+            chmod +x mock-qcc
+            ./mock-qcc 443 "/data" "/data/cert.pem" "/data/key.pem"
+            
+            # Windows
+            unzip mock-qcc-windows-x64.zip
+            mock-qcc.exe 443 "/data" "/data/cert.pem" "/data/key.pem"
+            ```
+            
+            ## Usage
+            
+            ```bash
+            # Basic usage
+            ./mock-qcc <port> <working-directory> <cert-file> <key-file>
+            
+            # Examples
+            ./mock-qcc 443 "/data" "/data/cert.pem" "/data/key.pem"
+            ```
+          draft: false
+          prerelease: false
+
+      - name: Upload release assets
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            const releaseAssetsDir = 'release-assets';
+            const assetDirs = fs.readdirSync(releaseAssetsDir);
+            
+            for (const assetDir of assetDirs) {
+              const fullAssetDir = path.join(releaseAssetsDir, assetDir);
+              if (fs.statSync(fullAssetDir).isDirectory()) {
+                const files = fs.readdirSync(fullAssetDir);
+                
+                for (const file of files) {
+                  const filePath = path.join(fullAssetDir, file);
+                  const stat = fs.statSync(filePath);
+                  
+                  if (stat.isFile()) {
+                    console.log(`Uploading ${file}...`);
+                    
+                    const fileData = fs.readFileSync(filePath);
+                    const contentType = file.endsWith('.zip') ? 'application/zip' : 
+                                     file.endsWith('.md5') ? 'text/plain' : 
+                                     'application/octet-stream';
+                    
+                    await github.rest.repos.uploadReleaseAsset({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      release_id: ${{ steps.create_release.outputs.id }},
+                      name: file,
+                      data: fileData,
+                      headers: {
+                        'content-type': contentType,
+                        'content-length': fileData.length
+                      }
+                    });
+                    
+                    console.log(`Uploaded ${file}`);
+                  }
+                }
+              }
+            }
